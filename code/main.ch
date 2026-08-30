@@ -23,3 +23,18 @@ let ab = f y, z -- ab == 28
 -- ; is treated like newline unless it is in a comment
 set y = 0;;;;;;;; -- doesnt cause an error
 -- set x = 6 -- causes error because defined with let
+
+let rf = fn() {
+    print "yo bro" -- doesnt return
+    "h" -- returns
+}
+
+let brkf = fn() {
+    let c = fn () {} -- compiles to: local c = function() end \n return c
+}
+
+if y == 21 {
+   print rf()
+} else {
+  print "else"
+}

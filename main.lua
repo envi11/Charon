@@ -16,6 +16,7 @@ end
 if type(args[1]) ~= "string" then
    print("wrong argument type provided")
    printUsage()
+   return 1
 end
 
 local file, file_err = io.open(args[1], "r")
