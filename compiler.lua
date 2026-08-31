@@ -143,7 +143,15 @@ local function Compiler(tokens)
     function self:scoped_block() self.scopes[#self.scopes + 1] = {}; self.indent = self.indent + 1; self:block(false); self.indent = self.indent - 1; self.scopes[#self.scopes] = nil end
     function self:statement(in_function)
         local t = self:peek()
-        if t.value == "impl" or t.value == "meta" then
+        if t.value == "export" then
+            self:take(); local names = {}
+            while self:peek().type == "identifier" do
+                local name = self:take(); names[#names + 1] = name.value
+                self:declare(name.value, true, name, { exported = true })
+            end
+            if #names == 0 then error("expected exported variable at line " .. t.line) end
+            return "export"
+        elseif t.value == "impl" or t.value == "meta" then
             local kind = self:take().value; local name = self:take().value; self:take("{"); local entries = {}
             while not self:is("}") do
                 self:skip_newlines()
@@ -185,17 +193,28 @@ local function Compiler(tokens)
             for i, name in ipairs(names) do if declared[i] and not compatible(declared[i], inferred[i]) then error("value for '" .. name .. "' is not compatible with type " .. typename(declared[i]) .. " at line " .. t.line) end; self:declare(name, mutable, t, { types = declared[i], fields = declared[i] and self.structs[typename(declared[i])] and self.structs[typename(declared[i])].fields }); self:emit("local " .. name .. " = " .. values[i]) end
             return "declaration", names[#names]
         elseif t.value == "set" then
-            self:take(); local name = self:take(); local binding = self:lookup(name.value)
-            if not binding then error("cannot set undeclared variable '" .. name.value .. "' at line " .. name.line) end
-            if not self:is(".") and not self:is("[") and not binding.mutable then error("cannot set immutable variable '" .. name.value .. "' at line " .. name.line) end
-            local target = name.value
-            while self:is(".") or self:is("[") do
-                if self:is(".") then self:take(); target = target .. "." .. self:take().value else self:take(); local index = self:expression(1); self:take("]"); target = target .. "[" .. index .. "]" end
+            self:take(); local targets, bindings = {}, {}
+            repeat
+                local name = self:take(); local target = name.value; local binding = self:lookup(name.value)
+                if not binding then error("cannot set undeclared variable '" .. name.value .. "' at line " .. name.line) end
+                while self:is(".") or self:is("[") do
+                    if self:is(".") then self:take(); target = target .. "." .. self:take().value else self:take(); local index = self:expression(1); self:take("]"); target = target .. "[" .. index .. "]" end
+                end
+                if #targets == 0 and target == name.value and not binding.mutable then error("cannot set immutable variable '" .. name.value .. "' at line " .. name.line) end
+                targets[#targets + 1], bindings[#bindings + 1] = target, binding
+            until self:is("=")
+            self:take("="); local values = {}
+            for i = 1, #targets do
+                local value, info, forced = self:expression(1); local value_type = info and info.types
+                if bindings[i].type_info and bindings[i].type_info.types and not forced and not compatible(bindings[i].type_info.types, value_type) then
+                    error("cannot assign " .. typename(value_type) .. " to " .. typename(bindings[i].type_info.types) .. " variable '" .. targets[i] .. "'")
+                end
+                if forced then bindings[i].type_info.types = value_type end
+                values[i] = value
+                if i < #targets and self:is(",") then self:take() end
             end
-            self:take("="); local value, info, forced = self:expression(1); local value_type = info and info.types
-            if binding.type_info and binding.type_info.types and not forced and not compatible(binding.type_info.types, value_type) then error("cannot assign " .. typename(value_type) .. " to " .. typename(binding.type_info.types) .. " variable '" .. name.value .. "'") end
-            if forced then binding.type_info.types = value_type end
-            self:emit(target .. " = " .. value); return "assignment"
+            self:emit(table.concat(targets, ", ") .. " = " .. table.concat(values, ", "))
+            return "assignment"
         elseif t.value == "if" then self:take(); local condition = self:expression(1); self:take("{"); self:emit("if " .. condition .. " then"); self:scoped_block(); if self:is("else") then self:take(); self:take("{"); self:emit("else"); self:scoped_block() end; self:emit("end"); return "control"
         elseif t.value == "for" then
             self:take(); local first = self:take().value; local second

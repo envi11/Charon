@@ -53,13 +53,13 @@ assert_contains(output, "local y = \"hi\"")
 assert_contains(output, "foo = \"hi\"")
 
 local ok, err = pcall(function() compile("var x: number = 5\nset x = \"6\"") end)
-assert(not ok and err:find("cannot assign string to number variable", 1, true), err)
+assert(not ok and err and err:find("cannot assign string to number variable", 1, true), err)
 
 ok, err = pcall(function() compile("var y: string? = \"hi\"\nset y = 5") end)
-assert(not ok and err:find("cannot assign number to nil\\string variable", 1, true), err)
+assert(not ok and err and err:find("cannot assign number to nil\\string variable", 1, true), err)
 
 ok, err = pcall(function() compile("set missing = 1") end)
-assert(not ok and err:find("cannot set undeclared variable", 1, true), err)
+assert(not ok and err and err:find("cannot set undeclared variable", 1, true), err)
 
 output = compile([[struct Point { x y: number, }
 let p: Point = Point(1, 2)
@@ -77,6 +77,14 @@ assert_contains(output, "for i, v in pairs(t) do")
 ok, err = pcall(function() compile([[struct Point { x: number }
 let p: Point = Point(1)
 print p.z]]) end)
-assert(not ok and err:find("no field z in struct", 1, true), err)
+assert(not ok and err and err:find("no field z in struct", 1, true), err)
+
+output = compile([[export a b
+set a b = 55 21
+print a, b
+]])
+assert_contains(output, "a, b = 55, 21")
+assert_contains(output, "print(a, b)")
 
 print("all tests passed")
+
