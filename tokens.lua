@@ -1,6 +1,6 @@
 local keywords = {
    "let", "var", "set",
-   "for", "while",
+   "for", "in", "while",
    "fn", "if", "else",
    "true", "false", "nil",
 }

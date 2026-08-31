@@ -1,109 +1,185 @@
 local compiler = {}
 
+local function types(text)
+    local result = {}
+    for name in text:gmatch("[^\\]+") do result[name] = true end
+    return result
+end
+local function typename(set)
+    if not set then return "unknown" end
+    local result = {}
+    for name in pairs(set) do result[#result + 1] = name end
+    table.sort(result)
+    return table.concat(result, "\\")
+end
+local function compatible(expected, actual)
+    if not expected or not actual then return true end
+    for name in pairs(actual) do if expected[name] then return true end end
+    return false
+end
+
 local function Compiler(tokens)
-    local self = { tokens = tokens, pos = 1, out = {}, indent = 0, scopes = {{}} }
-    function self:peek(offset) return self.tokens[self.pos + (offset or 0)] end
+    local self = { tokens = tokens, pos = 1, out = {}, indent = 0, scopes = {{}}, structs = {} }
+    function self:peek(n) return self.tokens[self.pos + (n or 0)] end
     function self:is(value) local t = self:peek(); return t and t.value == value end
     function self:skip_newlines() while self:peek() and self:peek().type == "newline" do self.pos = self.pos + 1 end end
     function self:take(value)
         local t = self:peek()
         if not t then error("unexpected end of input") end
         if value and t.value ~= value then error("expected '" .. value .. "' at line " .. t.line) end
-        self.pos = self.pos + 1; return t
+        self.pos = self.pos + 1
+        return t
     end
-    function self:emit(text) self.out[#self.out + 1] = string.rep("    ", self.indent) .. text end
-    function self:declare(name, mutable, token) self.scopes[#self.scopes][name] = { mutable = mutable, token = token } end
+    function self:emit(value) self.out[#self.out + 1] = string.rep("    ", self.indent) .. value end
+    function self:declare(name, mutable, token, type_info) self.scopes[#self.scopes][name] = { mutable = mutable, token = token, type_info = type_info } end
     function self:lookup(name)
         for i = #self.scopes, 1, -1 do if self.scopes[i][name] then return self.scopes[i][name] end end
     end
-    local precedence = { ["="] = 1, ["<"] = 2, [">"] = 2, ["<="] = 2, [">="] = 2, ["=="] = 2, ["~="] = 2, ["+"] = 3, ["-"] = 3, ["*"] = 4, ["/"] = 4 }
-    local function starts_expression(t)
-        return t and (t.type == "number" or t.type == "string" or t.type == "identifier" or t.type == "rawlua" or t.value == "(" or t.value == "fn" or t.value == "true" or t.value == "false" or t.value == "nil")
+    local precedence = { ["="] = 1, ["<"] = 2, [">"] = 2, ["<="] = 2, [">="] = 2, ["=="] = 2, ["~="] = 2, [".."] = 3, ["+"] = 4, ["-"] = 4, ["*"] = 5, ["/"] = 5 }
+    local function starts(t)
+        return t and (t.type == "number" or t.type == "string" or t.type == "identifier" or t.type == "rawlua" or t.value == "(" or t.value == "[" or t.value == "fn" or t.value == "true" or t.value == "false" or t.value == "nil")
     end
-    function self:expression(min_prec)
-        local left = self:primary()
+    function self:parse_type()
+        local result = {}
+        repeat
+            local t = self:take()
+            if t.type ~= "identifier" and t.type ~= "keyword" then error("expected type at line " .. t.line) end
+            result[t.value] = true
+            if self:is("\\") then self:take() else break end
+        until false
+        if self:is("?") then self:take(); result["nil"] = true end
+        return result
+    end
+    function self:expression(min)
+        local left, left_info, forced = self:primary()
+        local left_type = left_info and left_info.types
         while true do
             local op = self:peek(); local p = op and precedence[op.value]
-            if not p or p < min_prec then break end
-            self:take(); local right = self:expression(p + 1); left = "(" .. left .. " " .. op.value .. " " .. right .. ")"
+            if not p or p < min then break end
+            self:take(); local right, right_info = self:expression(p + 1); local right_type = right_info and right_info.types
+            if (op.value == "+" or op.value == "-" or op.value == "*" or op.value == "/") and left_type and right_type and (not left_type.number or not right_type.number) then error("operator '" .. op.value .. "' requires number operands at line " .. op.line) end
+            left = "(" .. left .. " " .. op.value .. " " .. right .. ")"
+            left_type = (op.value == "<" or op.value == ">" or op.value == "<=" or op.value == ">=" or op.value == "==" or op.value == "~=") and types("boolean") or left_type
+            left_info = left_type and { types = left_type } or nil
         end
-        return left
+        if self:is("::") then
+            self:take(); left_info = { types = self:parse_type() }; forced = true
+        end
+        return left, left_info, forced
     end
     function self:primary()
-        local t = self:take(); local value
-        if t.type == "number" or t.type == "string" or t.type == "rawlua" or t.type == "identifier" then value = t.value
-        elseif t.value == "true" or t.value == "false" or t.value == "nil" then value = t.value
-        elseif t.value == "(" then value = "(" .. self:expression(1) .. ")"; self:take(")")
+        local t = self:take(); local value, info
+        if t.type == "number" then value, info = t.value, { types = types("number") }
+        elseif t.type == "string" then value, info = t.value, { types = types("string") }
+        elseif t.type == "rawlua" then value = t.value
+        elseif t.value == "true" or t.value == "false" then value, info = t.value, { types = types("boolean") }
+        elseif t.value == "nil" then value, info = t.value, { types = types("nil") }
+        elseif t.type == "identifier" then
+            value = t.value; local binding = self:lookup(value); info = binding and binding.type_info
+            if not info and self.structs[value] then info = { types = types(value), fields = self.structs[value].fields } end
+        elseif t.value == "(" then value, info = self:expression(1); self:take(")"); value = "(" .. value .. ")"
+        elseif t.value == "[" then
+            local items = {}; self:skip_newlines()
+            while not self:is("]") do local item = self:expression(1); items[#items + 1] = item; if self:is(",") then self:take() else break end; self:skip_newlines() end
+            self:take("]"); value = "{" .. table.concat(items, ", ") .. "}"; info = { types = types("array") }
+        elseif t.value == "{" then
+            local fields = {}; local entries = {}; self:skip_newlines()
+            while not self:is("}") do
+                local key, item, rendered_key
+                if self:is(":") then self:take(); local name = self:take().value; key, item, rendered_key = name, name, name
+                elseif self:peek().type == "identifier" and self:peek(1).value == "=" then key = self:take().value; self:take("="); item = self:expression(1); rendered_key = key
+                elseif self:is("[") then self:take(); key = self:expression(1); self:take("]"); self:take("="); item = self:expression(1); rendered_key = "[" .. key .. "]"
+                elseif self:peek().type == "identifier" then key = self:take().value; item = "nil"; rendered_key = key
+                else error("expected table field at line " .. self:peek().line) end
+                if type(key) == "string" then
+                    entries[#entries + 1] = (rendered_key:sub(1, 1) == "[" and rendered_key or "[\"" .. key .. "\"]") .. " = " .. item
+                    fields[key] = true
+                else entries[#entries + 1] = rendered_key .. " = " .. item end
+                if self:is(",") then self:take() end
+                self:skip_newlines()
+            end
+            self:take("}"); value = "{" .. table.concat(entries, ", ") .. "}"; info = { types = types("table"), fields = fields }
         elseif t.value == "fn" then
             self:take("("); local args = {}
             while not self:is(")") do args[#args + 1] = self:take().value; if self:is(",") then self:take() end end
-            self:take(")"); self:take("{")
-            local output, old_indent = self.out, self.indent; self.out = {}; self.indent = old_indent + 1
-            self.scopes[#self.scopes + 1] = {}
+            self:take(")"); self:take("{"); local output, old = self.out, self.indent; self.out, self.indent = {}, old + 1; self.scopes[#self.scopes + 1] = {}
             for _, name in ipairs(args) do self:declare(name, true, t) end
-            self:block(true); self.scopes[#self.scopes] = nil
-            local body = self.out; self.out = output; self.indent = old_indent
-            value = "function(" .. table.concat(args, ", ") .. ")\n" .. table.concat(body, "\n") .. "\n" .. string.rep("    ", old_indent) .. "end"
+            self:block(true); self.scopes[#self.scopes] = nil; local body = self.out; self.out, self.indent = output, old
+            value = "function(" .. table.concat(args, ", ") .. ")\n" .. table.concat(body, "\n") .. "\n" .. string.rep("    ", old) .. "end"
         else error("unexpected token '" .. t.value .. "' at line " .. t.line) end
-        if self:is("(") then
-            self:take(); local args = {}
-            while not self:is(")") do args[#args + 1] = self:expression(1); if self:is(",") then self:take() else break end end
-            self:take(")"); value = value .. "(" .. table.concat(args, ", ") .. ")"
-        elseif (t.type == "identifier" or t.value == "fn") and starts_expression(self:peek()) then
-            local args = { self:expression(1) }
-            while self:is(",") do self:take(); args[#args + 1] = self:expression(1) end
-            value = value .. "(" .. table.concat(args, ", ") .. ")"
+        while true do
+            if self:is("(") then
+                self:take(); local args = {}
+                while not self:is(")") do local arg = self:expression(1); args[#args + 1] = arg; if self:is(",") then self:take() else break end end
+                self:take(")"); value = value .. "(" .. table.concat(args, ", ") .. ")"
+                if info and info.fields then info = { types = info.types, fields = info.fields } else info = nil end
+            elseif self:is(".") then
+                self:take(); local field = self:take(); if info and info.fields and not info.fields[field.value] then error("no field " .. field.value .. " in struct at line " .. field.line) end
+                value = value .. "." .. field.value; info = nil
+            elseif self:is("[") then self:take(); local index = self:expression(1); self:take("]"); value = value .. "[" .. index .. "]"; info = nil
+            elseif (t.type == "identifier" or t.value == "fn") and starts(self:peek()) then
+                local first_arg = self:expression(1)
+                local args = { first_arg }
+                while self:is(",") do self:take(); local arg = self:expression(1); args[#args + 1] = arg end
+                value = value .. "(" .. table.concat(args, ", ") .. ")"; info = nil
+            else break end
         end
-        return value
+        return value, info, false
     end
     function self:block(in_function)
-        local last_kind, last_value; self:skip_newlines()
-        while not self:is("}") and self:peek().type ~= "eof" do
-            last_kind, last_value = self:statement(in_function)
-            self:skip_newlines()
-        end
+        local kind, name; self:skip_newlines()
+        while not self:is("}") and self:peek().type ~= "eof" do kind, name = self:statement(in_function); self:skip_newlines() end
         self:take("}")
-        if in_function then
-            if last_kind == "expression" then
-                self.out[#self.out] = self.out[#self.out]:gsub("^(%s*)", "%1return ")
-            elseif last_kind == "declaration" then
-                self:emit("return " .. last_value)
-            end
-        end
+        if in_function then if kind == "expression" then self.out[#self.out] = self.out[#self.out]:gsub("^(%s*)", "%1return ") elseif kind == "declaration" then self:emit("return " .. name) end end
     end
-    function self:scoped_block()
-        self.scopes[#self.scopes + 1] = {}; self.indent = self.indent + 1; self:block(false); self.indent = self.indent - 1; self.scopes[#self.scopes] = nil
-    end
+    function self:scoped_block() self.scopes[#self.scopes + 1] = {}; self.indent = self.indent + 1; self:block(false); self.indent = self.indent - 1; self.scopes[#self.scopes] = nil end
     function self:statement(in_function)
         local t = self:peek()
-        if t.value == "let" or t.value == "var" then
-            local mutable = self:take().value == "var"; local names = {}
-            while not self:is("=") do names[#names + 1] = self:take().value end; self:take("=")
-            local values = {}; for i = 1, #names do values[i] = self:expression(1); if self:is(",") then self:take() end end
-            for i, name in ipairs(names) do local name_token = { line = t.line }; self:declare(name, mutable, name_token); self:emit("local " .. name .. " = " .. (values[i] or "nil")) end
+        if t.value == "struct" then
+            self:take(); local name = self:take(); self:take("{"); local fields = {}; local field_order = {}
+            while not self:is("}") do
+                self:skip_newlines()
+                local field = self:take(); fields[field.value] = true; field_order[#field_order + 1] = field.value
+                if self:is(":") then
+                    self:take(); local field_type = self:parse_type()
+                    for i = #field_order, 1, -1 do if fields[field_order[i]] == true then fields[field_order[i]] = field_type else break end end
+                end
+                if self:is(",") then self:take() end; self:skip_newlines()
+                if self:is("}") then break end
+                if self:peek().type ~= "identifier" then error("expected struct field at line " .. self:peek().line) end
+            end
+            self:take("}"); self.structs[name.value] = { fields = fields }; local params = table.concat(field_order, ", "); local body = {}; for i, field in ipairs(field_order) do body[#body + 1] = "[\"" .. field .. "\"] = " .. field end
+            self:emit("local function " .. name.value .. "(" .. params .. ") return {" .. table.concat(body, ", ") .. "} end"); return "control"
+        elseif t.value == "let" or t.value == "var" then
+            local mutable = self:take().value == "var"; local names, declared = {}, {}
+            while not self:is("=") do
+                local n = self:take(); names[#names + 1] = n.value
+                if self:is(":") then
+                    self:take(); local type_info = self:parse_type()
+                    for i = 1, #names do if not declared[i] then declared[i] = type_info end end
+                end
+            end
+            self:take("="); local values, inferred = {}, {}; for i = 1, #names do local value, info = self:expression(1); values[i], inferred[i] = value, info and info.types; if self:is(",") then self:take() end end
+            for i, name in ipairs(names) do if declared[i] and not compatible(declared[i], inferred[i]) then error("value for '" .. name .. "' is not compatible with type " .. typename(declared[i]) .. " at line " .. t.line) end; self:declare(name, mutable, t, { types = declared[i], fields = declared[i] and self.structs[typename(declared[i])] and self.structs[typename(declared[i])].fields }); self:emit("local " .. name .. " = " .. values[i]) end
             return "declaration", names[#names]
         elseif t.value == "set" then
-            self:take(); local name_token = self:take(); local binding = self:lookup(name_token.value)
-            if not binding then error("cannot set undeclared variable '" .. name_token.value .. "' at line " .. name_token.line) end
-            if not binding.mutable then error("cannot set immutable variable '" .. name_token.value .. "'\ndeclared with let at line " .. binding.token.line .. " (set at line " .. name_token.line .. ")") end
-            self:take("="); self:emit(name_token.value .. " = " .. self:expression(1)); return "assignment"
-        elseif t.value == "if" then
-            self:take(); local condition = self:expression(1); self:take("{"); self:emit("if " .. condition .. " then"); self:scoped_block()
-            if self:is("else") then self:take(); self:take("{"); self:emit("else"); self:scoped_block() end
-            self:emit("end")
-            return "control"
+            self:take(); local name = self:take(); local binding = self:lookup(name.value); if not binding then error("cannot set undeclared variable '" .. name.value .. "' at line " .. name.line) end; if not binding.mutable then error("cannot set immutable variable '" .. name.value .. "' at line " .. name.line) end; self:take("="); local value, info, forced = self:expression(1); local value_type = info and info.types; if binding.type_info and binding.type_info.types and not forced and not compatible(binding.type_info.types, value_type) then error("cannot assign " .. typename(value_type) .. " to " .. typename(binding.type_info.types) .. " variable '" .. name.value .. "'") end; if forced then binding.type_info.types = value_type end; self:emit(name.value .. " = " .. value); return "assignment"
+        elseif t.value == "if" then self:take(); local condition = self:expression(1); self:take("{"); self:emit("if " .. condition .. " then"); self:scoped_block(); if self:is("else") then self:take(); self:take("{"); self:emit("else"); self:scoped_block() end; self:emit("end"); return "control"
         elseif t.value == "for" then
-            self:take(); local name_token = self:take(); self:take("="); local first = self:expression(1); self:take(","); local last = self:expression(1); self:take("{"); self:emit("for " .. name_token.value .. " = " .. first .. ", " .. last .. " do"); self.scopes[#self.scopes + 1] = {}; self:declare(name_token.value, true, name_token); self.indent = self.indent + 1; self:block(false); self.indent = self.indent - 1; self.scopes[#self.scopes] = nil; self:emit("end"); return "control"
-        elseif t.value == "while" then
-            self:take(); local condition = self:expression(1); self:take("{"); self:emit("while " .. condition .. " do"); self:scoped_block(); self:emit("end"); return "control"
+            self:take(); local first = self:take().value; local second
+            if self:is(",") then self:take(); second = self:take().value end
+            if self:is("in") then
+                self:take(); local iterator = self:expression(1); self:take("{"); self:emit("for " .. first .. (second and ", " .. second or "") .. " in " .. iterator .. " do")
+            else
+                self:take("="); local start = self:expression(1); self:take(","); local finish = self:expression(1); self:take("{"); self:emit("for " .. first .. " = " .. start .. ", " .. finish .. " do")
+            end
+            self:scoped_block(); self:emit("end"); return "control"
+        elseif t.value == "while" then self:take(); local condition = self:expression(1); self:take("{"); self:emit("while " .. condition .. " do"); self:scoped_block(); self:emit("end"); return "control"
         elseif t.value == "{" then self:take(); self:emit("do"); self:scoped_block(); self:emit("end"); return "control"
         else self:emit(self:expression(1)); return "expression" end
     end
-    function self:compile()
-        self:skip_newlines(); while self:peek().type ~= "eof" do self:statement(false); self:skip_newlines() end; return table.concat(self.out, "\n") .. "\n"
-    end
+    function self:compile() self:skip_newlines(); while self:peek().type ~= "eof" do self:statement(false); self:skip_newlines() end; return table.concat(self.out, "\n") .. "\n" end
     return self
 end
-
 function compiler.compile(tokens) return Compiler(tokens):compile() end
 return compiler

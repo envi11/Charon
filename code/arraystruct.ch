@@ -1,0 +1,27 @@
+struct Point {
+    x y: number,
+}
+
+let p: Point = Point( 1, 2 )
+var p2 = Point( 5, 6 )
+
+-- set p2 = 5 -- error: struct variables are static by default
+-- make struct vars dynamic with ' var x: any = structName[...] '
+
+print p.x -- outputs 1
+-- print p.z -- error: no field z in struct Point
+print p["y"] -- outputs 2
+
+let arr = [ 1, 6, 3 ] -- arrays
+print arr[2] -- outputs 6
+
+let ppp = 5
+let t = { -- anonimous struct
+    h = 2, -- t.h == 2
+    :ppp, -- t.ppp == ppp
+    ["q"] = 5 -- t.q == 5
+    b, -- t.b == nil
+}
+for i, v in pairs(t) {
+    print("t." .. tostring(i) .. " =", v)
+}

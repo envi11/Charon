@@ -37,7 +37,46 @@ print x]])
 assert_contains(output, "    local x = 2")
 assert(output:match("end\nprint%(x%)"), output)
 
-local ok, err = pcall(function() compile("set missing = 1") end)
+output = compile([[var x: number = 5
+set x = 6
+set x = "forced" :: string
+]])
+assert_contains(output, "local x = 5")
+assert_contains(output, 'x = "forced"')
+
+output = compile([[var y: string? = "hi"
+set y = nil
+var foo: number\string = 52
+set foo = "hi"
+]])
+assert_contains(output, "local y = \"hi\"")
+assert_contains(output, "foo = \"hi\"")
+
+local ok, err = pcall(function() compile("var x: number = 5\nset x = \"6\"") end)
+assert(not ok and err:find("cannot assign string to number variable", 1, true), err)
+
+ok, err = pcall(function() compile("var y: string? = \"hi\"\nset y = 5") end)
+assert(not ok and err:find("cannot assign number to nil\\string variable", 1, true), err)
+
+ok, err = pcall(function() compile("set missing = 1") end)
 assert(not ok and err:find("cannot set undeclared variable", 1, true), err)
+
+output = compile([[struct Point { x y: number, }
+let p: Point = Point(1, 2)
+let arr = [1, 6, 3]
+print p.x
+print arr[2]
+let t = { h = 2, :p }
+for i, v in pairs(t) { print i, v }
+]])
+assert_contains(output, "local function Point(x, y)")
+assert_contains(output, "print(p.x)")
+assert_contains(output, "print(arr[2])")
+assert_contains(output, "for i, v in pairs(t) do")
+
+ok, err = pcall(function() compile([[struct Point { x: number }
+let p: Point = Point(1)
+print p.z]]) end)
+assert(not ok and err:find("no field z in struct", 1, true), err)
 
 print("all tests passed")

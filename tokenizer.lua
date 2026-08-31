@@ -29,14 +29,12 @@ function tokenizer.tokenize(code)
             if not text then error("unterminated multiline comment at line " .. line) end
             advance(text)
         elseif rest:match("^%-%-") then
-            text = rest:match("^%-%-[^\n]*")
-            advance(text)
+            text = rest:match("^%-%-[^\n]*"); advance(text)
         elseif rest:match("^<<") then
             text = rest:match("^(<<.->>)")
             if not text then error("unterminated raw Lua block at line " .. line) end
             add("rawlua", text:sub(3, -3), at_line, at_column); advance(text)
-        elseif rest:match("^[ \t\r]+") then
-            advance(rest:match("^[ \t\r]+"))
+        elseif rest:match("^[ \t\r]+") then advance(rest:match("^[ \t\r]+"))
         elseif rest:sub(1, 1) == "\n" or rest:sub(1, 1) == ";" then
             text = rest:sub(1, 1)
             if #tokens == 0 or tokens[#tokens].type ~= "newline" then add("newline", text, at_line, at_column) end
@@ -46,24 +44,21 @@ function tokenizer.tokenize(code)
         elseif rest:match("^[%a_][%w_]*") then
             text = rest:match("^[%a_][%w_]*"); add(keyword[text] and "keyword" or "identifier", text, at_line, at_column); advance(text)
         elseif rest:match('^"') or rest:match("^'") then
-            local quote = rest:sub(1, 1); local j = 2
+            local quote, j = rest:sub(1, 1), 2
             while j <= #rest and rest:sub(j, j) ~= quote do
                 if rest:sub(j, j) == "\\" then j = j + 1 end
                 j = j + 1
             end
             if j > #rest then error("unterminated string at line " .. line) end
             text = rest:sub(1, j); add("string", text, at_line, at_column); advance(text)
-        elseif rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^=>") or rest:match("^[+%-%*/%=<>]") then
-            text = rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^=>") or rest:match("^[+%-%*/%=<>]")
+        elseif rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%=<>]") then
+            text = rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%=<>]")
             add("operator", text, at_line, at_column); advance(text)
-        elseif string.find("(){}[],:", rest:sub(1, 1), 1, true) then
+        elseif string.find("(){}[],:\\?.", rest:sub(1, 1), 1, true) then
             text = rest:sub(1, 1); add("symbol", text, at_line, at_column); advance(text)
-        else
-            error("lexical error: unexpected character '" .. rest:sub(1, 1) .. "' at line " .. line .. ", column " .. column)
-        end
+        else error("lexical error: unexpected character '" .. rest:sub(1, 1) .. "' at line " .. line .. ", column " .. column) end
     end
     add("eof", "", line, column)
-
     return tokens
 end
 
