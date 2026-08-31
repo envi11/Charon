@@ -2,7 +2,7 @@ local tokenizer = require "tokenizer"
 local compiler = require "compiler"
 
 local function printUsage()
-   print("Usage: lua main.lua {FILE}")
+   print("Usage: chc [file]")
 end
 
 local args = { ... }
