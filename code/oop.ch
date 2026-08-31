@@ -1,0 +1,26 @@
+struct foo { -- uninitialized values
+    value: string
+    x: any?
+}
+impl foo { -- initialized values
+    f = fn(self) {
+        self.value = self.value .. "ffff"
+    }
+}
+meta foo { -- metamethods
+    __add = fn(a, b) {
+        a.value .. b.value
+    }
+}
+
+let a = foo("hi", 69)
+let b = foo("bebebe")
+let c = a + b -- c == "hibebebe"
+
+a:f() -- a == "hiffff"
+let d = b.f(a) -- b.value == "bebebe"; a.value == "hiffffffff"
+-- d == a.value
+
+print a.x -- 69
+print b.x -- nil
+print c

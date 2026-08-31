@@ -69,7 +69,7 @@ print arr[2]
 let t = { h = 2, :p }
 for i, v in pairs(t) { print i, v }
 ]])
-assert_contains(output, "local function Point(x, y)")
+assert_contains(output, "function Point(x, y)")
 assert_contains(output, "print(p.x)")
 assert_contains(output, "print(arr[2])")
 assert_contains(output, "for i, v in pairs(t) do")
