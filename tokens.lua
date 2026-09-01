@@ -1,7 +1,7 @@
 local keywords = {
    "let", "var", "set", "export",
    "for", "in", "while",
-   "fn", "if", "else", "struct", "impl", "meta",
+   "fn", "if", "elseif", "else", "struct", "impl", "meta",
    "true", "false", "nil",
 }
 

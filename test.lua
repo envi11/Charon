@@ -86,5 +86,29 @@ print a, b
 assert_contains(output, "a, b = 55, 21")
 assert_contains(output, "print(a, b)")
 
+output = compile([[var dynamic
+var nullable: string?
+set dynamic = 5
+set nullable = nil
+if false {
+    print 1
+} elseif true {
+    print 2
+} else {
+    print 3
+}
+]])
+assert_contains(output, "local dynamic = nil")
+assert_contains(output, "local nullable = nil")
+assert_contains(output, "if false then")
+assert_contains(output, "elseif true then")
+
+output = compile("print 17 % 5")
+assert_contains(output, "print((17 % 5))")
+
+local modulo_ok, modulo_err = pcall(function() compile([[var text: string = "x"
+print text % 2]]) end)
+assert(not modulo_ok and modulo_err:find("operator '%' requires number operands", 1, true), modulo_err)
+
 print("all tests passed")
 

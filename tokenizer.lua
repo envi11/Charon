@@ -51,8 +51,8 @@ function tokenizer.tokenize(code)
             end
             if j > #rest then error("unterminated string at line " .. line) end
             text = rest:sub(1, j); add("string", text, at_line, at_column); advance(text)
-        elseif rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%=<>]") then
-            text = rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%=<>]")
+        elseif rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%%%=<>]") then
+            text = rest:match("^==") or rest:match("^~=") or rest:match("^<=") or rest:match("^>=") or rest:match("^::") or rest:match("^%.%.") or rest:match("^[+%-%*/%%%=<>]")
             add("operator", text, at_line, at_column); advance(text)
         elseif string.find("(){}[],:\\?.", rest:sub(1, 1), 1, true) then
             text = rest:sub(1, 1); add("symbol", text, at_line, at_column); advance(text)

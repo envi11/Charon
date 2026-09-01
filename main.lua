@@ -1,5 +1,5 @@
-local tokenizer = require "tokenizer"
-local compiler = require "compiler"
+local tokenizer = require("tokenizer")
+local compiler = require("compiler")
 
 local function printUsage()
    print("Usage: chc [file]")

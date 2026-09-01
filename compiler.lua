@@ -47,7 +47,7 @@ local function Compiler(tokens)
     function self:lookup(name)
         for i = #self.scopes, 1, -1 do if self.scopes[i][name] then return self.scopes[i][name] end end
     end
-    local precedence = { ["="] = 1, ["<"] = 2, [">"] = 2, ["<="] = 2, [">="] = 2, ["=="] = 2, ["~="] = 2, [".."] = 3, ["+"] = 4, ["-"] = 4, ["*"] = 5, ["/"] = 5 }
+    local precedence = { ["="] = 1, ["<"] = 2, [">"] = 2, ["<="] = 2, [">="] = 2, ["=="] = 2, ["~="] = 2, [".."] = 3, ["+"] = 4, ["-"] = 4, ["*"] = 5, ["/"] = 5, ["%"] = 5 }
     local function starts(t)
         return t and (t.type == "number" or t.type == "string" or t.type == "identifier" or t.type == "rawlua" or t.value == "(" or t.value == "[" or t.value == "fn" or t.value == "true" or t.value == "false" or t.value == "nil")
     end
@@ -69,7 +69,7 @@ local function Compiler(tokens)
             local op = self:peek(); local p = op and precedence[op.value]
             if not p or p < min then break end
             self:take(); local right, right_info = self:expression(p + 1); local right_type = right_info and right_info.types
-            if (op.value == "+" or op.value == "-" or op.value == "*" or op.value == "/") and left_type and right_type and (not left_type.number or not right_type.number) then error("operator '" .. op.value .. "' requires number operands at line " .. op.line) end
+            if (op.value == "+" or op.value == "-" or op.value == "*" or op.value == "/" or op.value == "%") and left_type and right_type and (not left_type.number or not right_type.number) then error("operator '" .. op.value .. "' requires number operands at line " .. op.line) end
             left = "(" .. left .. " " .. op.value .. " " .. right .. ")"
             left_type = (op.value == "<" or op.value == ">" or op.value == "<=" or op.value == ">=" or op.value == "==" or op.value == "~=") and types("boolean") or left_type
             left_info = left_type and { types = left_type } or nil
@@ -141,6 +141,13 @@ local function Compiler(tokens)
         if in_function then if kind == "expression" then self.out[#self.out] = self.out[#self.out]:gsub("^(%s*)", "%1return ") elseif kind == "declaration" then self:emit("return " .. name) end end
     end
     function self:scoped_block() self.scopes[#self.scopes + 1] = {}; self.indent = self.indent + 1; self:block(false); self.indent = self.indent - 1; self.scopes[#self.scopes] = nil end
+    function self:conditional_tail()
+        if self:is("elseif") then
+            self:take(); local condition = self:expression(1); self:take("{"); self:emit("elseif " .. condition .. " then"); self:scoped_block(); self:conditional_tail()
+        elseif self:is("else") then
+            self:take(); self:take("{"); self:emit("else"); self:scoped_block()
+        end
+    end
     function self:statement(in_function)
         local t = self:peek()
         if t.value == "export" then
@@ -182,14 +189,21 @@ local function Compiler(tokens)
             self:take("}"); self.structs[name.value] = { fields = fields, order = field_order }; self.struct_defs[name.value] = self.struct_defs[name.value] or {}; if not self.struct_defs[name.value].seen then self.struct_defs[name.value].seen = true; self.struct_order[#self.struct_order + 1] = name.value end; self.struct_defs[name.value].struct = { order = field_order }; return "control"
         elseif t.value == "let" or t.value == "var" then
             local mutable = self:take().value == "var"; local names, declared = {}, {}
-            while not self:is("=") do
+            while not self:is("=") and self:peek().type ~= "newline" and self:peek().type ~= "eof" do
                 local n = self:take(); names[#names + 1] = n.value
                 if self:is(":") then
                     self:take(); local type_info = self:parse_type()
                     for i = 1, #names do if not declared[i] then declared[i] = type_info end end
                 end
+                if self:is("newline") then break end
             end
-            self:take("="); local values, inferred = {}, {}; for i = 1, #names do local value, info = self:expression(1); values[i], inferred[i] = value, info and info.types; if self:is(",") then self:take() end end
+            local values, inferred = {}, {}
+            if self:is("=") then
+                self:take()
+                for i = 1, #names do local value, info = self:expression(1); values[i], inferred[i] = value, info and info.types; if self:is(",") then self:take() end end
+            else
+                for i = 1, #names do values[i], inferred[i] = "nil", types("nil") end
+            end
             for i, name in ipairs(names) do if declared[i] and not compatible(declared[i], inferred[i]) then error("value for '" .. name .. "' is not compatible with type " .. typename(declared[i]) .. " at line " .. t.line) end; self:declare(name, mutable, t, { types = declared[i], fields = declared[i] and self.structs[typename(declared[i])] and self.structs[typename(declared[i])].fields }); self:emit("local " .. name .. " = " .. values[i]) end
             return "declaration", names[#names]
         elseif t.value == "set" then
@@ -215,7 +229,7 @@ local function Compiler(tokens)
             end
             self:emit(table.concat(targets, ", ") .. " = " .. table.concat(values, ", "))
             return "assignment"
-        elseif t.value == "if" then self:take(); local condition = self:expression(1); self:take("{"); self:emit("if " .. condition .. " then"); self:scoped_block(); if self:is("else") then self:take(); self:take("{"); self:emit("else"); self:scoped_block() end; self:emit("end"); return "control"
+        elseif t.value == "if" then self:take(); local condition = self:expression(1); self:take("{"); self:emit("if " .. condition .. " then"); self:scoped_block(); self:conditional_tail(); self:emit("end"); return "control"
         elseif t.value == "for" then
             self:take(); local first = self:take().value; local second
             if self:is(",") then self:take(); second = self:take().value end
