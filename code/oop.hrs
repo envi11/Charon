@@ -3,6 +3,9 @@ struct foo { -- uninitialized values
     x: any?
 }
 impl foo { -- initialized values
+    __init = fn() {
+	    print "__init"
+	}
     f = fn(self) {
         self.value = self.value .. "ffff"
     }
