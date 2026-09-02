@@ -1,17 +1,47 @@
 # Herse
 
-this is a silly little transpiler i made in lua for my nonexistant language
+Herse is a lightweight and expressive programming language that compiles to readable Lua.
+
+## Warning
+All of the stuff here is still WIP, so if something doesn't work, please make an Issue or a PR.
 
 ## Requirements
-- Lua 5.1 Interpreter
+- Lua 5.1 or later
 
-## Usage:
+## Installation
+Clone this repo and optionally add it to your $PATH.
+
+## Usage
+
+Compile a Herse file to a Lua file with the same name:
+
 ```console
 hrc path/file.hrs
 ```
-to compile to path/file.lua
-or
+This creates:
+
+```text
+path/file.lua
+```
+
+To print the compiled Lua to standard output instead:
+
+```console
+hrc-out path/file.hrs
+```
+
+Run a Herse program directly with:
+
 ```console
 hrs path/file.hrs
 ```
-to run
+
+## Code Examples
+A bunch of code exaples with comments are available in ./code, check them out!
+
+## Fun Facts
+ - Herse is one of Jupiter's moons
+ - This language was originally called Charon before I found out that name was taken
+ - The first working version of this transpiler was made in under 5 hours (all the features it had are used in ./code/main.hrs)
+ - This is my first ever transpiler/compiler
+ - I don't have any more fun facts
