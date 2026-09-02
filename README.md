@@ -7,9 +7,11 @@ this is a silly little transpiler i made in lua for my nonexistant language
 
 ## Usage:
 ```console
-./hrc code.hrs
+hrc path/file.hrs
 ```
+to compile to path/file.lua
 or
 ```console
-lua main.lua code.hrs
+hrs path/file.hrs
 ```
+to run

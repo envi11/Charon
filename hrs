@@ -9,5 +9,5 @@ fi
 
 code=$("$script_dir""/hrc-out" "$@")
 if [[ "$code" != "" ]]; then
-   exec "$code" > "${@%.hrs}.lua"
+   exec lua "-" <<< "$code"
 fi

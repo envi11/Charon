@@ -1,20 +1,28 @@
 local tokenizer = require("tokenizer")
 local compiler = require("compiler")
 
+local function eprint(...)
+    local args = {...}
+    for i = 1, #args do
+        args[i] = tostring(args[i])
+    end
+    io.stderr:write(table.concat(args, "\t") .. "\n")
+end
+
 local function printUsage()
-   print("Usage: chc [file]")
+   eprint("Usage: hrc [file]")
 end
 
 local args = { ... }
 
 if args[1] == nil then
-   print("no file provided")
+   eprint("no file provided")
    printUsage()
    return 1
 end
 
 if type(args[1]) ~= "string" then
-   print("wrong argument type provided")
+   eprint("wrong argument type provided")
    printUsage()
    return 1
 end
@@ -22,7 +30,7 @@ end
 local file, file_err = io.open(args[1], "r")
 
 if not file then
-   print("could not read file:", file_err)
+   eprint("could not read file:", file_err)
    return 1
 end
 

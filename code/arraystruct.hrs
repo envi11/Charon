@@ -22,6 +22,8 @@ let t = { -- anonimous struct
     ["q"] = 5 -- t.q == 5
     b, -- t.b == nil
 }
+set t.h = 3
+set t["h"] = 4
 for i, v in pairs(t) {
     print("t." .. tostring(i) .. " =", v)
 }
