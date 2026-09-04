@@ -6,10 +6,10 @@ let p: Point = Point( 1, 2 )
 var p2 = Point( 5, 6 )
 
 -- set p2 = 5 -- error: struct variables are static by default
--- make struct vars dynamic with ' var x: any = structName[...] '
+-- make struct vars dynamic with ' var x: any = structName(...) '
 
 print p.x -- outputs 1
--- print p.z -- error: no field z in struct Point
+-- print p.z -- error: no field z in struct
 print p["y"] -- outputs 2
 
 let arr = [ 1, 6, 3 ] -- arrays

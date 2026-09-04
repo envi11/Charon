@@ -4,6 +4,7 @@ local keywords = {
     "fn",
     "if", "elseif", "else",
     "struct", "impl", "meta",
+    "macro",
     "true", "false",
     "nil",
 }

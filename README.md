@@ -6,6 +6,7 @@ Herse is a lightweight and expressive programming language that compiles to read
  - Static typing capabilities
  - User-Friendly syntax
  - OOP features
+ - Macros
 
 ## Warning
 All of the stuff here is still WIP, so if something doesn't work, please make an Issue or a PR.

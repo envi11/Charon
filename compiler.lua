@@ -1,5 +1,163 @@
 local compiler = {}
 
+local function clone_token(token)
+    return { type = token.type, value = token.value, line = token.line, column = token.column }
+end
+
+local function macro_tokens(tokens)
+    local macros, program = {}, {}
+    local i = 1
+    while i <= #tokens do
+        local token = tokens[i]
+        if token.value == "macro" then
+            local name = tokens[i + 1]
+            if not name or name.type ~= "identifier" then
+                error("expected macro name at line " .. token.line)
+            end
+            i = i + 2
+            local parameters = {}
+            if tokens[i] and tokens[i].value == "(" then
+                i = i + 1
+                while tokens[i] and tokens[i].value ~= ")" do
+                    local parameter = tokens[i]
+                    if parameter.type ~= "identifier" then
+                        error("expected macro parameter at line " .. parameter.line)
+                    end
+                    parameters[#parameters + 1] = parameter.value
+                    i = i + 1
+                    if tokens[i] and tokens[i].value == "," then
+                        i = i + 1
+                    end
+                end
+                if not tokens[i] then
+                    error("unterminated macro parameters at line " .. name.line)
+                end
+                i = i + 1
+            end
+            if not tokens[i] or tokens[i].value ~= "=" then
+                error("expected '=' after macro " .. name.value .. " at line " .. name.line)
+            end
+            i = i + 1
+            local body = {}
+            while tokens[i] and tokens[i].type ~= "eof" do
+                if tokens[i].type == "newline" then
+                    if tokens[i - 1] and tokens[i - 1].value == "\\" then
+                        body[#body].value = "\n"
+                        body[#body].type = "newline"
+                        i = i + 1
+                    else
+                        break
+                    end
+                else
+                    body[#body + 1] = clone_token(tokens[i])
+                    i = i + 1
+                end
+            end
+            macros[name.value] = { parameters = parameters, body = body }
+            if tokens[i] and tokens[i].type == "newline" then
+                i = i + 1
+            end
+        else
+            program[#program + 1] = clone_token(token)
+            i = i + 1
+        end
+    end
+
+    local function expand(input, depth)
+        if depth > 50 then
+            error("macro expansion exceeded maximum depth")
+        end
+        local output = {}
+        local pos = 1
+        while pos <= #input do
+            local token = input[pos]
+            local macro = token.type == "identifier" and macros[token.value]
+            if not macro then
+                output[#output + 1] = clone_token(token)
+                pos = pos + 1
+            else
+                local arguments = {}
+                local next_pos = pos + 1
+                if #macro.parameters > 0 then
+                    if input[next_pos] and input[next_pos].value == "(" then
+                        next_pos = next_pos + 1
+                        local argument = {}
+                        local level = 0
+                        while input[next_pos] do
+                            local current = input[next_pos]
+                            if current.value == "(" or current.value == "[" or current.value == "{" then
+                                level = level + 1
+                            elseif current.value == ")" and level == 0 then
+                                arguments[#arguments + 1] = argument
+                                next_pos = next_pos + 1
+                                break
+                            elseif current.value == ")" or current.value == "]" or current.value == "}" then
+                                level = level - 1
+                            end
+                            if current.value == "," and level == 0 then
+                                arguments[#arguments + 1] = argument
+                                argument = {}
+                            else
+                                argument[#argument + 1] = current
+                            end
+                            next_pos = next_pos + 1
+                        end
+                    else
+                        local argument = {}
+                        while input[next_pos] and input[next_pos].type ~= "newline" and input[next_pos].type ~= "eof" do
+                            argument[#argument + 1] = input[next_pos]
+                            next_pos = next_pos + 1
+                        end
+                        if #macro.parameters == 1 then
+                            arguments[1] = argument
+                        elseif #macro.parameters == 2 and #argument == 3 and argument[2].type == "operator" then
+                            arguments[1] = { argument[1] }
+                            arguments[2] = { argument[3] }
+                        elseif #argument == #macro.parameters * 2 - 1 then
+                            for n = 1, #macro.parameters do
+                                arguments[n] = { argument[n * 2 - 1] }
+                            end
+                        else
+                            arguments[1] = argument
+                        end
+                    end
+                    if #arguments ~= #macro.parameters then
+                        error("wrong number of arguments for macro " .. token.value .. " at line " .. token.line)
+                    end
+                end
+                local substitutions = {}
+                for n, parameter in ipairs(macro.parameters) do
+                    substitutions[parameter] = arguments[n]
+                end
+                local expanded_body = {}
+                for _, body_token in ipairs(macro.body) do
+                    local replacement = substitutions[body_token.value]
+                    if replacement then
+                        if #replacement > 1 then
+                            expanded_body[#expanded_body + 1] = { type = "symbol", value = "(", line = body_token.line, column = body_token.column }
+                        end
+                        for _, argument_token in ipairs(replacement) do
+                            expanded_body[#expanded_body + 1] = clone_token(argument_token)
+                        end
+                        if #replacement > 1 then
+                            expanded_body[#expanded_body + 1] = { type = "symbol", value = ")", line = body_token.line, column = body_token.column }
+                        end
+                    else
+                        expanded_body[#expanded_body + 1] = clone_token(body_token)
+                    end
+                end
+                for _, expanded_token in ipairs(expand(expanded_body, depth + 1)) do
+                    output[#output + 1] = expanded_token
+                end
+                pos = next_pos
+            end
+        end
+        return output
+    end
+
+    return expand(program, 0)
+end
+
 local function types(text)
     local result = {}
     for name in text:gmatch("[^\\]+") do
@@ -310,6 +468,7 @@ local function Compiler(tokens)
                 else
                     info = nil
                 end
+                t = nil
             elseif self:is(".") or self:is(":") then
                 local separator = self:take().value
                 local field = self:take()
@@ -328,7 +487,7 @@ local function Compiler(tokens)
                 self:take("]")
                 value = value .. "[" .. index .. "]"
                 info = nil
-            elseif (t.type == "identifier" or t.value == "fn") and starts(self:peek()) then
+            elseif t and (t.type == "identifier" or t.value == "fn") and starts(self:peek()) then
                 local first_arg = self:expression(1)
                 local args = { first_arg }
                 while self:is(",") do
@@ -705,7 +864,7 @@ local function Compiler(tokens)
                     .. table.concat(body, ", ")
                     .. "}, "
                     .. name
-                    .. "_mt) \n    if "
+                    .. "_mt)\n    if "
                     .. name
                     .. "_impl and "
                     .. name
@@ -715,14 +874,14 @@ local function Compiler(tokens)
         end
         for _, name in ipairs(self.struct_order) do
             local def = self.struct_defs[name]
-            if def.meta then
-                definitions[#definitions + 1] = name .. "_mt = {" .. table.concat(def.meta.entries, ", ") .. "}"
-            end
             if def.impl then
+			    if def.meta then
+				    definitions[#definitions + 1] = name .. "_mt = {" .. table.concat(def.meta.entries, ", ") .. "}"
+                else
+				    definitions[#definitions + 1] = name .. "_mt = {}"
+			    end
                 definitions[#definitions + 1] = name .. "_impl = {" .. table.concat(def.impl.entries, ", ") .. "}"
-            end
-            if def.meta and def.impl then
-                definitions[#definitions + 1] = name .. "_mt.__index = " .. name .. "_impl"
+				definitions[#definitions + 1] = name .. "_mt.__index = " .. name .. "_impl"
             end
         end
         local output = {}
@@ -737,6 +896,6 @@ local function Compiler(tokens)
     return self
 end
 function compiler.compile(tokens)
-    return Compiler(tokens):compile()
+    return Compiler(macro_tokens(tokens)):compile()
 end
 return compiler

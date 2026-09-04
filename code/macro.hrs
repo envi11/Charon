@@ -1,0 +1,16 @@
+macro im = 69 -- macros replace themselves with their value
+print im -- turns into print(69)
+
+macro printhi(arg) = print "hi, " .. tostring(arg)
+printhi "john" -- called just like a function
+
+macro ml = print "h" \
+           print "i" -- multiline macro
+
+ml
+
+macro printf(args) = io.write string.format table.unpack args
+printf ["Hello, %s!\n", "World"]
+
+macro sumtwo(a, b) = a + b
+print sumtwo 2, 2

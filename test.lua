@@ -120,4 +120,18 @@ print text % 2]])
 end)
 assert(not modulo_ok and modulo_err:find("operator '%' requires number operands", 1, true), modulo_err)
 
+output = compile([[macro answer = 69
+macro greet(name) = print "hi, " .. tostring(name)
+macro pair(a, b) = a + b
+macro lines = print "a" \
+              print "b"
+print answer
+greet "Ada"
+lines
+print pair 2 + 3]])
+assert_contains(output, "print(69)")
+assert_contains(output, 'print(("hi, " .. tostring("Ada")))')
+assert_contains(output, 'print("a")\nprint("b")')
+assert_contains(output, "print((2 + 3))")
+
 print("all tests passed")
